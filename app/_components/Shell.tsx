@@ -33,7 +33,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       <aside className={`side${open ? ' open' : ''}`}>
         <div className="brand"><span className="logo" aria-hidden="true" /> Mel Gepuklah AI HQ</div>
         <Nav />
-        <p className="hint">One <code>records</code> table behind all 9 tabs.</p>
+        <p className="hint">A <code>records</code> table + an <code>employees</code> table behind 10 tabs.</p>
       </aside>
 
       <main className="main">{children}</main>

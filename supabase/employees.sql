@@ -18,6 +18,10 @@ create table if not exists employees (
   created_at      timestamptz not null default now()
 );
 
+-- Weekly work pattern for the Timetable tab. Defaults to Mon–Fri; the part-time
+-- staff get their own days in the UPDATEs at the bottom. Safe to re-run.
+alter table employees add column if not exists work_days text[] not null default '{Mon,Tue,Wed,Thu,Fri}';
+
 -- Server-side only: your Next.js app reads this with the SERVICE_ROLE key,
 -- which bypasses RLS. No public/anon access.
 alter table employees enable row level security;
@@ -38,3 +42,8 @@ select * from (values
   ('Faizal Omar',  'Social Media Intern', 'Marketing',   'part_time', 'probation', 15, 16, date '2026-04-15', 'faizal@company.com')
 ) as seed(name, role, department, employment_type, status, hourly_rate, weekly_hours, start_date, email)
 where not exists (select 1 from employees);
+
+-- Part-time staff work specific days (full-timers keep the Mon–Fri default).
+update employees set work_days = '{Mon,Wed,Fri}'     where name = 'Mei Ling';
+update employees set work_days = '{Thu,Fri,Sat,Sun}' where name = 'Jason Tan';
+update employees set work_days = '{Tue,Thu}'         where name = 'Faizal Omar';

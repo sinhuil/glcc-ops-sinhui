@@ -14,6 +14,7 @@ export type Employee = {
   weekly_hours: number      // contracted hours per week
   start_date: string | null
   email: string | null
+  work_days: string[] | null  // e.g. ['Mon','Tue','Wed','Thu','Fri']
   created_at: string
 }
 

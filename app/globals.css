@@ -122,3 +122,93 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .btn { background: var(--amber); color: #1a1205; border: none; border-radius: 9px; padding: 9px 16px; font-size: 14px; font-weight: 600; cursor: pointer; }
 .btn:disabled { opacity: 0.6; cursor: default; }
 .brief { white-space: pre-wrap; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin: 14px 0 0; font-size: 13px; line-height: 1.6; color: var(--text); font-family: inherit; }
+
+/* =====================================================================
+   Mobile (<=768px). Everything responsive lives in this section so the
+   desktop layout above stays byte-for-byte identical. The mobile-only
+   chrome (.topbar, .overlay) is display:none by default, so it never
+   renders on desktop even where media queries aren't a factor.
+   ===================================================================== */
+.topbar { display: none; }
+.overlay { display: none; }
+
+@media (max-width: 768px) {
+  /* Real phone width + no accidental sideways scroll. */
+  body { font-size: 16px; }
+  .app { display: block; min-height: 100vh; }
+  html, body { overflow-x: hidden; }
+
+  /* Fixed top bar with hamburger — clears the notch via safe-area inset. */
+  .topbar {
+    display: flex; align-items: center; gap: 12px;
+    position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+    height: calc(54px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 14px 0;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+  .hamb {
+    width: 44px; height: 44px; flex-shrink: 0;
+    display: flex; flex-direction: column; justify-content: center; gap: 5px;
+    background: none; border: none; cursor: pointer; padding: 10px;
+  }
+  .hamb span { display: block; height: 2px; border-radius: 2px; background: var(--text); }
+  .topbar-brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 16px; color: var(--amber); }
+  .topbar-brand .logo { width: 24px; height: 24px; border-radius: 7px; background: var(--amber); display: inline-block; }
+
+  /* Sidebar becomes an off-canvas drawer. */
+  .side {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 60;
+    width: 264px; max-width: 82vw;
+    padding: calc(18px + env(safe-area-inset-top)) 18px calc(18px + env(safe-area-inset-bottom));
+    transform: translateX(-100%); transition: transform .25s ease;
+    box-shadow: 0 0 40px rgba(0,0,0,0.5);
+  }
+  .side.open { transform: translateX(0); }
+
+  /* Dim + tap-to-close behind the open drawer. */
+  .app.nav-open .overlay {
+    display: block; position: fixed; inset: 0; z-index: 55;
+    background: rgba(0,0,0,0.55);
+  }
+
+  /* Main content sits below the fixed bar, with comfortable phone padding. */
+  .main {
+    padding: calc(54px + env(safe-area-inset-top) + 16px) 16px calc(24px + env(safe-area-inset-bottom));
+  }
+
+  /* Larger tap targets for nav links. */
+  .nav a { min-height: 44px; display: flex; align-items: center; font-size: 16px; }
+
+  /* Stat cards: clean 2-up grid; trim the big number so it never wraps. */
+  .grid { grid-template-columns: 1fr 1fr; gap: 12px; }
+  .stat .v { font-size: 24px; }
+
+  /* Pipeline: stack the stage columns instead of a sideways-scrolling row. */
+  .cols { flex-direction: column; gap: 18px; }
+
+  /* Tables: each row becomes a stacked card. Labels come from td[data-label]. */
+  .tbl, .tbl tbody, .tbl tr, .tbl td { display: block; }
+  .tbl { border: none; background: none; border-radius: 0; overflow: visible; }
+  .tbl thead { display: none; }
+  .tbl tr {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; margin-bottom: 12px; overflow: hidden;
+  }
+  .tbl td {
+    display: flex; justify-content: space-between; align-items: center; gap: 14px;
+    padding: 11px 14px; font-size: 16px; text-align: right;
+    border-bottom: 1px solid var(--border);
+  }
+  .tbl tr td:last-child { border-bottom: none; }
+  .tbl td::before {
+    content: attr(data-label); text-align: left; flex-shrink: 0;
+    color: var(--muted); font-size: 13px; font-weight: 500;
+  }
+
+  /* Office: a touch shorter on phones. */
+  .office { height: 300px; }
+  .agent .ava { width: 42px; height: 42px; font-size: 22px; }
+
+  /* Buttons meet the 44px tap-target minimum. */
+  .btn { min-height: 44px; }
+}

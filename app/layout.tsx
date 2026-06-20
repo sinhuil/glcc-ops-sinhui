@@ -1,24 +1,30 @@
 import './globals.css'
-import Nav from './_components/Nav'
+import type { Viewport } from 'next'
 import ConnStatus from './_components/ConnStatus'
+import Shell from './_components/Shell'
 
 export const metadata = {
   title: 'Mel Gepuklah AI HQ',
   description: 'GLCC Starter — your business in one place',
 }
 
+// width=device-width + initial-scale=1 so phones render at real width (no
+// desktop-zoom). viewport-fit=cover lets us pad around the notch/home-bar with
+// env(safe-area-inset-*) on the fixed mobile top bar.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+}
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <div className="app">
-          <aside className="side">
-            <div className="brand"><span className="logo" aria-hidden="true" /> Mel Gepuklah AI HQ</div>
-            <Nav />
-            <p className="hint">One <code>records</code> table behind all 8 tabs.</p>
-          </aside>
-          <main className="main"><ConnStatus />{children}</main>
-        </div>
+        <Shell>
+          <ConnStatus />
+          {children}
+        </Shell>
       </body>
     </html>
   )

@@ -65,6 +65,15 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .pill.on_hold, .pill.draft { background: rgba(239,159,39,0.16); color: #ffcf80; }
 .pill.posted { background: rgba(29,158,117,0.16); color: #86e0b8; }
 
+/* HR status pills (active is already styled above). */
+.pill.on_leave { background: rgba(239,159,39,0.16); color: #ffcf80; }
+.pill.probation { background: rgba(55,138,221,0.16); color: #8ec5ff; }
+.pill.left { background: rgba(226,75,74,0.18); color: #ff9b9b; }
+
+/* HR employment-type pills. */
+.pill.full_time { background: rgba(29,158,117,0.16); color: #86e0b8; }
+.pill.part_time { background: rgba(55,138,221,0.16); color: #8ec5ff; }
+
 /* ---- AI Agents office ---- */
 .office {
   position: relative;

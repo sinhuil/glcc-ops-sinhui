@@ -1,11 +1,11 @@
-import { getEmployees } from '@/lib/employees'
+import { getEmployees, isWorking } from '@/lib/employees'
 import Calendar from './Calendar'
 
 export const dynamic = 'force-dynamic'
 
 export default async function Timetable() {
-  // Only people actually working show on the calendar (skip on-leave / departed).
-  const team = (await getEmployees()).filter(e => e.status !== 'left' && e.status !== 'on_leave')
+  // Only people actually working show on the calendar (skip anyone on leave/MC/annual or departed).
+  const team = (await getEmployees()).filter(e => isWorking(e.status))
 
   return (
     <>

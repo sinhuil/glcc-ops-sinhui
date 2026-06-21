@@ -37,3 +37,49 @@ export async function getEmployees(): Promise<Employee[]> {
 // 'full_time' -> 'full time', 'on_leave' -> 'on leave' (for display only;
 // the raw value still drives the .pill CSS class).
 export const labelize = (s: string) => s.replace(/_/g, ' ')
+
+// ---- Staff availability (8am digest + Telegram bot updates) ----
+export const WORKING_STATUSES = ['active', 'probation']
+export const LEAVE_LABEL: Record<string, string> = { mc: 'medical', annual_leave: 'annual', on_leave: 'leave' }
+export const isWorking = (s: string) => WORKING_STATUSES.includes(s)
+export const isOnLeave = (s: string) => s in LEAVE_LABEL
+
+const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const MO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+// "Today" in Malaysia (UTC+8), so a 00:00-UTC cron reads the correct weekday.
+export function staffToday(team: Employee[]) {
+  const myt = new Date(Date.now() + 8 * 3600 * 1000)
+  const day = WD[myt.getUTCDay()]
+  const dateLabel = `${day} ${myt.getUTCDate()} ${MO[myt.getUTCMonth()]}`
+  const working = team.filter(e => isWorking(e.status) && (e.work_days ?? []).includes(day))
+  const onLeave = team.filter(e => isOnLeave(e.status))
+  const offToday = team.filter(e => isWorking(e.status) && !(e.work_days ?? []).includes(day))
+  return { day, dateLabel, working, onLeave, offToday }
+}
+
+// The Telegram message body — shared by the cron and the on-demand bot reply.
+export function staffMessage(team: Employee[]): string {
+  const { dateLabel, working, onLeave, offToday } = staffToday(team)
+  return (
+    `☀️ <b>Staff today — ${dateLabel}</b>\n` +
+    `\n✅ <b>Working (${working.length}):</b>\n` +
+    (working.length ? working.map(e => `• ${e.name}${e.department ? ` <i>(${e.department})</i>` : ''}`).join('\n') : '• —') +
+    (onLeave.length
+      ? `\n\n🤒 <b>On leave (${onLeave.length}):</b>\n` + onLeave.map(e => `• ${e.name} — ${LEAVE_LABEL[e.status] ?? 'leave'}`).join('\n')
+      : `\n\n🟢 Nobody on leave today.`) +
+    (offToday.length ? `\n\n😴 <b>Off (not scheduled):</b> ${offToday.map(e => e.name).join(', ')}` : '')
+  )
+}
+
+// Map a spoken intent ("medical", "back") to a DB status, then write it.
+export const STATUS_FROM_INTENT: Record<string, string> = {
+  working: 'active', medical: 'mc', annual: 'annual_leave', leave: 'on_leave',
+}
+
+export async function setEmployeeStatus(name: string, status: string): Promise<boolean> {
+  if (!supabaseConfigured) return false
+  const { error } = await supabase.from('employees').update({ status }).eq('name', name)
+  if (error) { console.warn('[GLCC] setEmployeeStatus failed:', error.message); return false }
+  return true
+}

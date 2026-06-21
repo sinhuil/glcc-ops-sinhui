@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { sendMessage } from '@/lib/telegram'
 import { loadTurns, appendTurn } from '@/lib/bot-memory'
 import { getRecords } from '@/lib/records'
+import { getEmployees, setEmployeeStatus, staffMessage, STATUS_FROM_INTENT } from '@/lib/employees'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,8 +38,22 @@ export async function POST(req: Request) {
   }
 
   if (msg.text.trim().toLowerCase() === '/start') {
-    await sendMessage(chatId, '🤖 Ask me anything about your records — e.g. "how much is in pipeline?", "what\'s due this week?", "show me open leads".')
+    await sendMessage(chatId,
+      '🤖 Ask me about your records — e.g. "how much is in pipeline?".\n\n' +
+      '👥 Staff: tell me about availability — e.g. "Sarah on MC", "Mei annual leave", "Jason can work" — and I\'ll update the roster. Ask "who\'s working today?" anytime.')
     return Response.json({ ok: true })
+  }
+
+  // 1b) Staff availability update? ("Sarah on MC", "Jason can work", "Mei annual leave")
+  if (/\b(mc|medical|sick|annual|leave|off|back|available|unavailable|can ?'?t? ?work|cannot work|can work|working)\b/i.test(msg.text)) {
+    const reply = await tryLeaveUpdate(msg.text)
+    if (reply) { await sendMessage(chatId, reply); return Response.json({ ok: true }) }
+    // Not an update but clearly a staff/roster question → send today's roster.
+    if (/who|roster|today|working|on leave|off/i.test(msg.text)) {
+      const team = (await getEmployees()).filter(e => e.status !== 'left')
+      await sendMessage(chatId, staffMessage(team))
+      return Response.json({ ok: true })
+    }
   }
 
   // 2) Load the second brain + recent turns.
@@ -72,4 +87,43 @@ export async function POST(req: Request) {
   await appendTurn(chatId, msg.text, answer)
   await sendMessage(chatId, answer)
   return Response.json({ ok: true })
+}
+
+// Parse an availability message into {employee, status} with Claude (matched
+// against the real employee names), then write it. Returns a confirmation
+// string if it handled an update, or null to fall through to normal Q&A.
+async function tryLeaveUpdate(text: string): Promise<string | null> {
+  const employees = await getEmployees()
+  if (!employees.length) return null
+  const names = employees.map(e => e.name)
+
+  let parsed: { name?: string | null; status?: string | null } = {}
+  try {
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY?.trim() })
+    const res = await anthropic.messages.create({
+      model: 'claude-haiku-4-5',
+      max_tokens: 120,
+      system:
+        `Extract a staff availability update. Employees: ${names.join(', ')}.\n` +
+        `Reply ONLY compact JSON {"name":<exact name from the list or null>,"status":"working"|"medical"|"annual"|"leave"|null}. ` +
+        `working = can work / back / available. medical = MC/sick. annual = annual leave. leave = generic unavailable. ` +
+        `If it is not an availability update, return {"name":null,"status":null}.`,
+      messages: [{ role: 'user', content: text }],
+    })
+    const raw = res.content.find(c => c.type === 'text')?.text ?? '{}'
+    parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? '{}')
+  } catch {
+    return null
+  }
+
+  if (!parsed.name || !parsed.status || !names.includes(parsed.name)) return null
+  const dbStatus = STATUS_FROM_INTENT[parsed.status]
+  if (!dbStatus) return null
+
+  const ok = await setEmployeeStatus(parsed.name, dbStatus)
+  if (!ok) return `⚠️ Couldn't update ${parsed.name} — try again in a moment.`
+  const label: Record<string, string> = {
+    active: 'working ✅', mc: 'medical leave 🤒', annual_leave: 'annual leave 🌴', on_leave: 'on leave',
+  }
+  return `Updated <b>${parsed.name}</b> → ${label[dbStatus]}`
 }

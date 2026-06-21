@@ -1,5 +1,5 @@
 import { sendMessage } from '@/lib/telegram'
-import { getEmployees, staffMessage } from '@/lib/employees'
+import { getEmployees, getOverrides, staffMessage } from '@/lib/employees'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,8 +13,9 @@ export async function GET(req: Request) {
   }
 
   const team = (await getEmployees()).filter(e => e.status !== 'left')
+  const overrides = await getOverrides()
   const owner = process.env.OWNER_CHAT_ID?.trim()
-  if (owner) await sendMessage(owner, staffMessage(team))
+  if (owner) await sendMessage(owner, staffMessage(team, overrides))
 
   return Response.json({ ok: true, sent: !!owner, count: team.length })
 }

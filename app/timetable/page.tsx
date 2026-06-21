@@ -1,11 +1,13 @@
-import { getEmployees, isWorking } from '@/lib/employees'
+import { getEmployees, getOverrides } from '@/lib/employees'
 import Calendar from './Calendar'
 
 export const dynamic = 'force-dynamic'
 
 export default async function Timetable() {
-  // Only people actually working show on the calendar (skip anyone on leave/MC/annual or departed).
-  const team = (await getEmployees()).filter(e => isWorking(e.status))
+  // Everyone still employed; the calendar decides per-day who works (weekly
+  // pattern + date overrides), so on-leave staff can still be added to a date.
+  const team = (await getEmployees()).filter(e => e.status !== 'left')
+  const overrides = await getOverrides()
 
   return (
     <>
@@ -17,7 +19,7 @@ export default async function Timetable() {
           {' '}<code>employees</code> table (run <code>supabase/employees.sql</code>), then refresh.
         </p>
       ) : (
-        <Calendar employees={team} />
+        <Calendar employees={team} overrides={overrides} />
       )}
     </>
   )

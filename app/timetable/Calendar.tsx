@@ -1,6 +1,6 @@
 'use client'
 import { useMemo, useState } from 'react'
-import type { Employee } from '@/lib/employees'
+import type { Employee, Override } from '@/lib/employees'
 
 // Client component — interactive month/staff/department filters. `import type` is
 // erased at build, so lib/employees -> lib/supabase (service_role key) never
@@ -8,6 +8,14 @@ import type { Employee } from '@/lib/employees'
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const JS_TO_DAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] // Date.getDay() -> name
 const PALETTE = ['#8ec5ff', '#86e0b8', '#ffcf80', '#ff9b9b', '#c4a3ff', '#7fe3d4', '#f7a3d0', '#b6d97a']
+const WORKING = ['active', 'probation']
+
+// A date override wins; otherwise fall back to the weekly work_days pattern.
+function worksOn(e: Employee, weekday: string, dateISO: string, ov: Map<string, Override>): boolean {
+  const o = ov.get(`${e.name}|${dateISO}`)
+  if (o) return o.kind === 'work'
+  return WORKING.includes(e.status) && (e.work_days ?? []).includes(weekday)
+}
 
 const UserIcon = () => (
   <svg viewBox="0 0 24 24" width="11" height="11" className="ic-user" aria-hidden="true">
@@ -15,7 +23,7 @@ const UserIcon = () => (
   </svg>
 )
 
-export default function Calendar({ employees }: { employees: Employee[] }) {
+export default function Calendar({ employees, overrides }: { employees: Employee[]; overrides: Override[] }) {
   const now = new Date()
   const [month, setMonth] = useState(now.getMonth())
   const [year, setYear] = useState(now.getFullYear())
@@ -50,9 +58,17 @@ export default function Calendar({ employees }: { employees: Employee[] }) {
 
   const isThisMonth = year === now.getFullYear() && month === now.getMonth()
   const ymValue = `${year}-${String(month + 1).padStart(2, '0')}`
+
+  const ovMap = useMemo(() => {
+    const m = new Map<string, Override>()
+    for (const o of overrides) m.set(`${o.name}|${o.date}`, o)
+    return m
+  }, [overrides])
+
   const workingOn = (date: number) => {
-    const name = JS_TO_DAY[new Date(year, month, date).getDay()]
-    return shown.filter(e => (e.work_days ?? []).includes(name))
+    const weekday = JS_TO_DAY[new Date(year, month, date).getDay()]
+    const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(date).padStart(2, '0')}`
+    return shown.filter(e => worksOn(e, weekday, iso, ovMap))
   }
 
   return (

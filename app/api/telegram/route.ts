@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { sendMessage } from '@/lib/telegram'
 import { loadTurns, appendTurn } from '@/lib/bot-memory'
 import { getRecords } from '@/lib/records'
-import { getEmployees, setEmployeeStatus, staffMessage, STATUS_FROM_INTENT } from '@/lib/employees'
+import { getEmployees, getOverrides, setEmployeeStatus, upsertOverride, staffMessage, STATUS_FROM_REASON, prettyDate } from '@/lib/employees'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,14 +44,14 @@ export async function POST(req: Request) {
     return Response.json({ ok: true })
   }
 
-  // 1b) Staff availability update? ("Sarah on MC", "Jason can work", "Mei annual leave")
-  if (/\b(mc|medical|sick|annual|leave|off|back|available|unavailable|can ?'?t? ?work|cannot work|can work|working)\b/i.test(msg.text)) {
-    const reply = await tryLeaveUpdate(msg.text)
+  // 1b) Staff availability update? ("Sarah can work this weekend", "Kumar MC tomorrow", "Mei annual leave")
+  if (/\b(mc|medical|sick|annual|leave|off|back|available|unavailable|can ?'?t? ?work|cannot work|can work|works?|working|shift|weekend|today|tomorrow|tonight|next week|this week)\b/i.test(msg.text)) {
+    const reply = await tryAvailabilityUpdate(msg.text)
     if (reply) { await sendMessage(chatId, reply); return Response.json({ ok: true }) }
     // Not an update but clearly a staff/roster question → send today's roster.
     if (/who|roster|today|working|on leave|off/i.test(msg.text)) {
       const team = (await getEmployees()).filter(e => e.status !== 'left')
-      await sendMessage(chatId, staffMessage(team))
+      await sendMessage(chatId, staffMessage(team, await getOverrides()))
       return Response.json({ ok: true })
     }
   }
@@ -89,41 +89,63 @@ export async function POST(req: Request) {
   return Response.json({ ok: true })
 }
 
-// Parse an availability message into {employee, status} with Claude (matched
-// against the real employee names), then write it. Returns a confirmation
-// string if it handled an update, or null to fall through to normal Q&A.
-async function tryLeaveUpdate(text: string): Promise<string | null> {
+// Parse an availability message with Claude — who, work-or-off, which dates, and
+// why — then write date-specific overrides (or a standing status change when no
+// date is given). Returns a confirmation, or null to fall through to Q&A.
+async function tryAvailabilityUpdate(text: string): Promise<string | null> {
   const employees = await getEmployees()
   if (!employees.length) return null
   const names = employees.map(e => e.name)
+  const todayISO = isoMYT()
 
-  let parsed: { name?: string | null; status?: string | null } = {}
+  let p: { name?: string | null; kind?: string | null; reason?: string | null; dates?: string[] } = {}
   try {
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY?.trim() })
     const res = await anthropic.messages.create({
       model: 'claude-haiku-4-5',
-      max_tokens: 120,
+      max_tokens: 220,
       system:
-        `Extract a staff availability update. Employees: ${names.join(', ')}.\n` +
-        `Reply ONLY compact JSON {"name":<exact name from the list or null>,"status":"working"|"medical"|"annual"|"leave"|null}. ` +
-        `working = can work / back / available. medical = MC/sick. annual = annual leave. leave = generic unavailable. ` +
-        `If it is not an availability update, return {"name":null,"status":null}.`,
+        `Today is ${todayISO} (Asia/Kuala_Lumpur). Employees: ${names.join(', ')}.\n` +
+        `Interpret the message as a staff availability update and reply ONLY compact JSON:\n` +
+        `{"name":<exact name from the list or null>,"kind":"work"|"off"|null,"reason":"mc"|"annual"|"leave"|"extra"|null,"dates":["YYYY-MM-DD",...]}\n` +
+        `kind=work means can work / available / extra shift. kind=off means leave / MC / sick / annual / cannot work.\n` +
+        `Resolve any dates to actual calendar dates: "today", "tomorrow", a weekday = its next occurrence, ` +
+        `"this weekend" = the upcoming Saturday AND Sunday, "next week" = Monday–Friday of next week. ` +
+        `Use "dates":[] when no day is mentioned (a standing change). If it is not an availability update, set name=null.`,
       messages: [{ role: 'user', content: text }],
     })
     const raw = res.content.find(c => c.type === 'text')?.text ?? '{}'
-    parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? '{}')
+    p = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? '{}')
   } catch {
     return null
   }
 
-  if (!parsed.name || !parsed.status || !names.includes(parsed.name)) return null
-  const dbStatus = STATUS_FROM_INTENT[parsed.status]
-  if (!dbStatus) return null
+  if (!p.name || (p.kind !== 'work' && p.kind !== 'off') || !names.includes(p.name)) return null
+  const kind = p.kind
+  const dates = (Array.isArray(p.dates) ? p.dates : []).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d))
 
-  const ok = await setEmployeeStatus(parsed.name, dbStatus)
-  if (!ok) return `⚠️ Couldn't update ${parsed.name} — try again in a moment.`
-  const label: Record<string, string> = {
-    active: 'working ✅', mc: 'medical leave 🤒', annual_leave: 'annual leave 🌴', on_leave: 'on leave',
+  // Date-specific → one override per date.
+  if (dates.length) {
+    const reason = kind === 'off' ? (p.reason || 'leave') : 'extra'
+    let ok = 0
+    for (const d of dates) if (await upsertOverride(p.name, d, kind, reason)) ok++
+    if (!ok) return `⚠️ Couldn't update ${p.name} — try again in a moment.`
+    const verb = kind === 'work' ? 'working ✅' : `off — ${reasonLabel(p.reason)} 🚫`
+    return `Set <b>${p.name}</b> ${verb} on:\n${dates.map(d => `• ${prettyDate(d)}`).join('\n')}`
   }
-  return `Updated <b>${parsed.name}</b> → ${label[dbStatus]}`
+
+  // No date → standing status change (until you say otherwise).
+  const status = kind === 'work' ? 'active' : (STATUS_FROM_REASON[p.reason || 'leave'] ?? 'on_leave')
+  const ok = await setEmployeeStatus(p.name, status)
+  if (!ok) return `⚠️ Couldn't update ${p.name} — try again in a moment.`
+  const lbl: Record<string, string> = { active: 'working ✅', mc: 'medical leave 🤒', annual_leave: 'annual leave 🌴', on_leave: 'on leave' }
+  return `Updated <b>${p.name}</b> → ${lbl[status] ?? status} (until you change it)`
+}
+
+function isoMYT(): string {
+  const d = new Date(Date.now() + 8 * 3600 * 1000)
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+}
+function reasonLabel(r?: string | null): string {
+  return r === 'mc' ? 'MC' : r === 'annual' ? 'annual leave' : 'leave'
 }
